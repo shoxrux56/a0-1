@@ -82,8 +82,18 @@ const save=()=>{try{localStorage.setItem('alfavit3',JSON.stringify(S))}catch(e){
 const app=document.getElementById('app'),$=id=>document.getElementById(id);
 const rnd=n=>Math.floor(Math.random()*n),shuf=a=>[...a].sort(()=>Math.random()-.5);
 let AC=null,GID=0;
-function say(t,r){try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='ru-RU';u.rate=r||.85;speechSynthesis.speak(u)}catch(e){}}
-function beep(ok){try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();const o=AC.createOscillator(),g=AC.createGain();o.connect(g);g.connect(AC.destination);o.type='triangle';o.frequency.value=ok?880:170;g.gain.setValueAtTime(.15,AC.currentTime);g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+.25);o.start();o.stop(AC.currentTime+.25)}catch(e){}}
+const AUD={};
+try{speechSynthesis.getVoices();speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices()}catch(e){}
+function say(t,r){
+ // 1) brauzerda ruscha ovoz bo'lsa — o'shani ishlatamiz
+ try{const v=speechSynthesis.getVoices().find(x=>/^ru/i.test(x.lang));
+  if(v){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='ru-RU';u.voice=v;u.rate=r||.85;speechSynthesis.speak(u);return}}catch(e){}
+ // 2) yo'q bo'lsa (masalan Telegram Desktop) — internetdan ovoz olamiz
+ try{Object.values(AUD).forEach(x=>x.pause());
+  const a=AUD[t]||(AUD[t]=new Audio('https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ru&q='+encodeURIComponent(t)));
+  a.currentTime=0;const p=a.play();if(p&&p.catch)p.catch(()=>{})}catch(e){}
+}
+function beep(ok){try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();if(AC.state=='suspended')AC.resume();const o=AC.createOscillator(),g=AC.createGain();o.connect(g);g.connect(AC.destination);o.type='triangle';o.frequency.value=ok?880:170;g.gain.setValueAtTime(.15,AC.currentTime);g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+.25);o.start();o.stop(AC.currentTime+.25)}catch(e){}}
 const tiles=()=>`<div class=tiles>${L.map((x,i)=>`<button class="tile ${i<S.u?(S.w[x[0]]>0?'t1':'t2'):''}" onclick="say('${x[0]}')">${x[0]}</button>`).join('')}</div>`;
 
 function home(){
@@ -157,6 +167,7 @@ function game(){
  }
  nx();
 }
+addEventListener('pointerdown',()=>beep(1),{once:true});
 home();
 </script>
 </body>
