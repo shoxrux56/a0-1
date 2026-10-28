@@ -35,6 +35,11 @@ h1{font-family:Georgia,serif;font-size:2.6rem;margin:6px 0;text-align:center;lin
 .tip{background:rgba(0,0,0,.3);border-radius:12px;padding:8px;margin:8px 0;line-height:1.4}
 .fb{margin-top:10px;padding:10px;border-radius:14px;text-align:center;line-height:1.5}
 .fb.g{background:rgba(53,224,161,.2)}.fb.b{background:rgba(255,77,94,.25)}
+.splash{display:flex;align-items:center;justify-content:center;min-height:80vh}
+.splash{flex-direction:column;gap:18px}
+.splash .big{max-width:320px}
+.camel{width:190px;animation:bob 1s ease-in-out infinite alternate}
+@keyframes bob{to{transform:translateY(-8px)}}
 @media (prefers-reduced-motion:reduce){*{animation:none!important}}
 </style>
 </head>
@@ -81,19 +86,62 @@ try{S=Object.assign(S,JSON.parse(localStorage.getItem('alfavit3')||'{}'))}catch(
 const save=()=>{try{localStorage.setItem('alfavit3',JSON.stringify(S))}catch(e){}};
 const app=document.getElementById('app'),$=id=>document.getElementById(id);
 const rnd=n=>Math.floor(Math.random()*n),shuf=a=>[...a].sort(()=>Math.random()-.5);
-let AC=null,GID=0;
-const AUD={};
-try{speechSynthesis.getVoices();speechSynthesis.onvoiceschanged=()=>speechSynthesis.getVoices()}catch(e){}
-function say(t,r){
- // 1) brauzerda ruscha ovoz bo'lsa — o'shani ishlatamiz
- try{const v=speechSynthesis.getVoices().find(x=>/^ru/i.test(x.lang));
-  if(v){speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(t);u.lang='ru-RU';u.voice=v;u.rate=r||.85;speechSynthesis.speak(u);return}}catch(e){}
- // 2) yo'q bo'lsa (masalan Telegram Desktop) — internetdan ovoz olamiz
- try{Object.values(AUD).forEach(x=>x.pause());
-  const a=AUD[t]||(AUD[t]=new Audio('https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ru&q='+encodeURIComponent(t)));
-  a.currentTime=0;const p=a.play();if(p&&p.catch)p.catch(()=>{})}catch(e){}
+
+/* ===== OVOZ TIZIMI ===== */
+let AC=null,GID=0,AU=null,VOICES=[],SOUND=false,SID=0;
+const SIL='data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
+
+function ctx(){
+ try{
+  if(!AC){const C=window.AudioContext||window.webkitAudioContext;if(C)AC=new C()}
+  if(AC&&AC.state==='suspended')AC.resume();
+ }catch(e){}
+ return AC;
 }
-function beep(ok){try{AC=AC||new(window.AudioContext||window.webkitAudioContext)();if(AC.state=='suspended')AC.resume();const o=AC.createOscillator(),g=AC.createGain();o.connect(g);g.connect(AC.destination);o.type='triangle';o.frequency.value=ok?880:170;g.gain.setValueAtTime(.15,AC.currentTime);g.gain.exponentialRampToValueAtTime(.001,AC.currentTime+.25);o.start();o.stop(AC.currentTime+.25)}catch(e){}}
+function loadV(){try{VOICES=speechSynthesis.getVoices()}catch(e){}}
+try{loadV();speechSynthesis.onvoiceschanged=loadV}catch(e){}
+
+// Zaxira: Google ovozi (telefonda rus ovozi bo'lmasa). Bitta Audio elementi ishlatiladi.
+function web(t){
+ try{
+  speechSynthesis.cancel();
+  if(!AU)AU=new Audio();
+  AU.src='https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=ru&q='+encodeURIComponent(t);
+  const p=AU.play();if(p&&p.catch)p.catch(()=>{});
+ }catch(e){}
+}
+function say(t,r){
+ if(!SOUND)return;
+ const id=++SID;
+ const v=VOICES.find(x=>/^ru/i.test(x.lang));
+ if(!v||!('speechSynthesis' in window))return web(t);
+ let started=false;
+ const u=new SpeechSynthesisUtterance(t);
+ u.lang='ru-RU';u.voice=v;u.rate=r||.85;
+ u.onstart=()=>{started=true};
+ u.onerror=()=>{if(!started&&id===SID)web(t)};
+ window._u=u;
+ try{speechSynthesis.cancel()}catch(e){}
+ setTimeout(()=>{try{speechSynthesis.speak(u)}catch(e){}},80);
+ setTimeout(()=>{if(!started&&id===SID){try{speechSynthesis.cancel()}catch(e){}web(t)}},1500);
+}
+function beep(ok){
+ if(!SOUND)return;
+ try{
+  const c=ctx();if(!c)return;
+  const o=c.createOscillator(),g=c.createGain(),t=c.currentTime;
+  o.connect(g);g.connect(c.destination);o.type='triangle';o.frequency.value=ok?880:170;
+  g.gain.setValueAtTime(.15,t);g.gain.exponentialRampToValueAtTime(.001,t+.25);
+  o.start(t);o.stop(t+.25);
+ }catch(e){}
+}
+// Birinchi bosishda brauzer ovozni ochadi
+function unlock(){
+ ctx();
+ try{AU=new Audio();AU.src=SIL;const p=AU.play();if(p&&p.catch)p.catch(()=>{})}catch(e){}
+ try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;speechSynthesis.speak(u)}catch(e){}
+}
+
 const tiles=()=>`<div class=tiles>${L.map((x,i)=>`<button class="tile ${i<S.u?(S.w[x[0]]>0?'t1':'t2'):''}" onclick="say('${x[0]}')">${x[0]}</button>`).join('')}</div>`;
 
 function home(){
@@ -167,8 +215,19 @@ function game(){
  }
  nx();
 }
-addEventListener('pointerdown',()=>beep(1),{once:true});
-home();
+
+/* ===== Birinchi ekran: faqat "Boshlash" tugmasi ===== */
+const CAMEL='<svg viewBox="0 0 100 100" aria-hidden="true"><g fill="#d9a05b"><path d="M16 58Q8 62 10 78" stroke="#c98b45" stroke-width="5" stroke-linecap="round" fill="none"/><rect x="24" y="70" width="9" height="24" rx="4.5"/><rect x="38" y="72" width="9" height="22" rx="4.5"/><rect x="56" y="72" width="9" height="22" rx="4.5"/><rect x="70" y="70" width="9" height="24" rx="4.5"/><ellipse cx="37" cy="38" rx="11" ry="15" fill="#c98b45"/><ellipse cx="60" cy="38" rx="11" ry="15" fill="#c98b45"/><ellipse cx="49" cy="62" rx="32" ry="19"/><path d="M66 58Q80 54 76 30L90 30Q92 58 82 72Z"/><ellipse cx="85" cy="26" rx="12" ry="9"/></g><ellipse cx="49" cy="64" rx="15" ry="9" fill="#1cb0f6"/><ellipse cx="49" cy="64" rx="8" ry="4" fill="#ffc800"/><ellipse cx="78" cy="15" rx="3" ry="5" fill="#c98b45"/><circle cx="83" cy="23" r="3.5" fill="#3c3c3c"/><circle cx="84" cy="22" r="1.2" fill="#fff"/><circle cx="90" cy="30" r="3" fill="#ff8a8a" opacity=".7"/><path d="M92 25q2 1 2 4" stroke="#8a5a28" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>';
+function splash(){
+ app.innerHTML=`<div class=splash><div class=camel>${CAMEL}</div><button class=big id=st>Boshlash</button></div>`;
+ $('st').onclick=()=>{
+  SOUND=true;
+  unlock();
+  setTimeout(()=>say('Привет!'),150);
+  home();
+ };
+}
+splash();
 </script>
 </body>
 </html>
